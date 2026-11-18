@@ -4,17 +4,7 @@ name: Clean orphaned workflow runs
 # workflow file is removed. Once every run for that orphan is deleted, GitHub
 # can drop the stale workflow entry too.
 on:
-  schedule:
-    # Daily at 06:00 UTC.
-    - cron: "0 6 * * *"
-  push:
-    branches: [main]
-    paths:
-      # The first promotion to main performs the initial backlog cleanup without
-      # exposing a branch-selectable manual trigger with actions:write.
-      - ".github/workflows/cleanup-orphaned-workflows.yml"
-      - "scripts/ci/cleanup-orphaned-workflows.mjs"
-
+  workflow_dispatch:
 permissions:
   actions: write # Required to delete orphaned workflow runs through the Actions API.
   contents: read

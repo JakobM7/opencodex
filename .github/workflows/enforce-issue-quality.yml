@@ -5,15 +5,6 @@ name: Enforce issue quality
 # change live issue-quality behavior until the change is also on that default
 # branch.
 on:
-  issues:
-    types:
-      - opened
-      - edited
-      - reopened
-  issue_comment:
-    types:
-      - created
-      - edited
   workflow_dispatch:
     inputs:
       issue_number:

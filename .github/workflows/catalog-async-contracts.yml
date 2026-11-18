@@ -1,23 +1,6 @@
 name: Catalog async contracts
 
 on:
-  push:
-    branches: [dev, main, preview]
-    paths:
-      - src/**
-      - scripts/diagnostics/windows-version-control/**
-      - .github/actions/setup-project-bun/**
-      - .github/workflows/catalog-async-contracts.yml
-      - package.json
-      - bun.lock
-  pull_request:
-    paths:
-      - src/**
-      - scripts/diagnostics/windows-version-control/**
-      - .github/actions/setup-project-bun/**
-      - .github/workflows/catalog-async-contracts.yml
-      - package.json
-      - bun.lock
   workflow_dispatch:
 
 permissions:
