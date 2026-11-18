@@ -1,9 +1,7 @@
 name: Issue Triage (Deduplicate)
 
 on:
-  issues:
-    types: [opened]
-
+  workflow_dispatch:
 concurrency:
   group: issue-triage-${{ github.event.issue.number }}
   cancel-in-progress: false

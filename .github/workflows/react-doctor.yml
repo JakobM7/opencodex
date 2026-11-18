@@ -13,13 +13,7 @@
 name: React Doctor
 
 on:
-  # Scans the PR's changed files relative to the merge base of the target branch.
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-  # Scans `main` on every push to track the health-score trend.
-  push:
-    branches: ["main"]
-
+  workflow_dispatch:
 permissions:
   contents: read
   # Needed so the action can list PR files for --changed-files-from.

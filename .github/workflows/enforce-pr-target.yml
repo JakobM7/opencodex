@@ -1,26 +1,7 @@
 name: Enforce PR target branch
 
 on:
-  pull_request_target:
-    types:
-      - opened
-      - reopened
-      - edited
-      - labeled
-      - unlabeled
-      - ready_for_review
-      - synchronize
-  # CodeRabbit publishes a legacy commit status named `CodeRabbit` on the
-  # reviewed head SHA. `status` workflows are loaded only from the default
-  # branch, so a PR cannot suppress or rewrite this signal path. The status is
-  # only a wake-up signal; the gate re-reads live reviews before any write.
-  status:
-
-# pull-requests:write covers title/comment/label updates.
-# contents:write is required for convertPullRequestToDraft /
-# markPullRequestReadyForReview GraphQL mutations with GITHUB_TOKEN
-# (otherwise: "Resource not accessible by integration"). This workflow
-# never checks out PR head code.
+  workflow_dispatch:
 permissions:
   contents: write
   pull-requests: write
