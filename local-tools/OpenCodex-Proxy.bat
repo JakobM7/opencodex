@@ -1,6 +1,7 @@
 @echo off
 setlocal
 echo OpenCodex auf Port 10100. Der Wechsel unterbricht laufende Anfragen.
+echo Stable und Dev nutzen dieselbe Konfiguration.
 echo.
 echo 1. Dev aktivieren
 echo 2. Stable wiederherstellen

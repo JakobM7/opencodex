@@ -3,14 +3,14 @@ param([ValidateSet('Dev', 'Stable', 'Status')][string]$Action = 'Status')
 
 $ErrorActionPreference = 'Stop'
 $stableState = Join-Path $env:USERPROFILE '.opencodex'
-$devRoot = Join-Path $env:LOCALAPPDATA 'OpenCodex-dev'
-$seedState = Join-Path $devRoot '10101'
-$devState = Join-Path $devRoot '10100'
+$legacyDevState = Join-Path $env:LOCALAPPDATA 'OpenCodex-dev\10100'
+$sharedConfig = Join-Path $stableState 'config.json'
 $repo = Split-Path -Parent $PSScriptRoot
 $bun = Join-Path $repo 'node_modules\bun\bin\bun.exe'
 $entry = Join-Path $repo 'src\cli\index.ts'
 $stablePackage = Join-Path $env:APPDATA 'npm\node_modules\@bitkyc08\opencodex'
 $stableBun = Join-Path $stablePackage 'node_modules\bun\bin\bun.exe'
+$stableEntry = Join-Path $stablePackage 'src\cli\index.ts'
 $stableStopModule = Join-Path $stablePackage 'src\service\cli-windows-stop.ts'
 $port = 10100
 $taskName = 'opencodex-proxy'
@@ -36,9 +36,18 @@ function Read-ProxyPid([string]$State) {
 function Get-PortState {
     $owner = Get-ListenerOwner $port
     if (!$owner) { return 'Free' }
-    $kind = if ($owner -eq (Read-ProxyPid $stableState)) { 'Stable' }
-        elseif ($owner -eq (Read-ProxyPid $devState)) { 'Dev' }
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $owner"
+    $sharedOwner = Read-ProxyPid $stableState
+    $legacyOwner = Read-ProxyPid $legacyDevState
+    $kind = if ($process.ExecutablePath -eq $bun -and $process.CommandLine -like "*$entry*") {
+        if ($owner -eq $sharedOwner) { 'Dev' }
+        elseif ($owner -eq $legacyOwner) { 'LegacyDev' }
         else { 'Unknown' }
+    } elseif ($owner -eq $sharedOwner -and $process.ExecutablePath -eq $stableBun -and $process.CommandLine -like "*$stableEntry*") {
+        'Stable'
+    } else {
+        'Unknown'
+    }
     if ($kind -eq 'Unknown') { return $kind }
     try {
         $health = Invoke-RestMethod "http://127.0.0.1:$port/healthz" -TimeoutSec 2
@@ -65,82 +74,30 @@ function Get-StableTask {
     return $task
 }
 
-function Set-DevEnvironment {
-    $env:OPENCODEX_HOME = $devState
-    $env:CODEX_HOME = Join-Path $devState 'codex-client'
-    $env:GROK_HOME = Join-Path $devState 'grok-client'
-    $env:CLAUDE_CONFIG_DIR = Join-Path $devState 'claude-code'
-    $env:OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR = Join-Path $devState 'claude-desktop\configLibrary'
+function Set-SharedEnvironment {
+    $state = Get-Content -LiteralPath (Join-Path $stableState 'service-state.json') -Raw | ConvertFrom-Json
+    if ($state.opencodexHome -ne $stableState -or $state.cliPath -ne $stableEntry -or
+        $state.bunPath -ne $stableBun -or $state.backend -ne 'scheduler' -or !$state.codexHome) {
+        throw 'Der installierte Dienst verweist auf eine andere OpenCodex- oder Codex-Installation.'
+    }
+    $env:OPENCODEX_HOME = $state.opencodexHome
+    $env:CODEX_HOME = $state.codexHome
+    $env:CODEX_SQLITE_HOME = $state.codexSqliteHome
+    $env:OCX_SERVICE_MANAGED = $null
+    $env:OCX_WINDOWS_WRAPPER_PROTOCOL = $null
 }
 
-function Assert-LocalPath([string]$Path) {
-    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-    if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        throw "Der Dev-Pfad ist ein Link: $Path"
+function Confirm-SharedConfig([string]$Runtime, [string]$Cli) {
+    $config = Get-Content -LiteralPath $sharedConfig -Raw | ConvertFrom-Json
+    if ($config.runtimeRole -ne 'standalone' -or $config.port -ne $port) {
+        throw 'Die gemeinsame Konfiguration muss ein eigenstaendiger Proxy auf Port 10100 sein.'
     }
-}
+    & $Runtime $Cli config validate $sharedConfig --json | Out-Null
+    if ($LASTEXITCODE) { throw "Die Zielversion hat die gemeinsame Konfiguration abgelehnt. Der laufende Proxy bleibt aktiv." }
 
-function New-PrivateDirectory([string]$Path) {
-    Assert-LocalPath $Path
-    if (!(Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Path $Path | Out-Null }
-    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-    $acl = New-Object Security.AccessControl.DirectorySecurity
-    $acl.SetOwner($sid)
-    $acl.SetAccessRuleProtection($true, $false)
-    $rule = New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
-    $acl.AddAccessRule($rule)
-    Set-Acl -LiteralPath $Path -AclObject $acl
-}
-
-function Prepare-Dev {
-    $stable = Get-Content -LiteralPath (Join-Path $stableState 'config.json') -Raw | ConvertFrom-Json
-    $interceptPort = if ($stable.claudeCode.intercept.port) { [int]$stable.claudeCode.intercept.port } else { $port + 100 }
-    $interceptOn = $stable.claudeCode.enabled -ne $false -and $stable.claudeCode.intercept.enabled -ne $false
-    Assert-LocalPath $devRoot
-    New-PrivateDirectory $devState
-    foreach ($file in 'config.json', 'config.switch.tmp', 'config.before-switch.json', 'service-api-token', 'switch.stdout.log', 'switch.stderr.log') {
-        Assert-LocalPath (Join-Path $devState $file)
-    }
-    $target = Join-Path $devState 'config.json'
-    $template = if (Test-Path -LiteralPath $target) { $target } else { Join-Path $seedState 'config.json' }
-    $config = Get-Content -LiteralPath $template -Raw | ConvertFrom-Json
-    if ($config.runtimeRole -ne 'standalone' -or $stable.runtimeRole -ne 'standalone' -or $stable.port -ne $port) {
-        throw 'Stable und Dev muessen eigenstaendige lokale Proxys sein.'
-    }
-    $config.port = $port
-    $config.hostname = '127.0.0.1'
-    $config | Add-Member -NotePropertyName apiKeys -NotePropertyValue $stable.apiKeys -Force
-    if (!$config.claudeCode) { $config | Add-Member -NotePropertyName claudeCode -NotePropertyValue ([pscustomobject]@{}) -Force }
-    $config.claudeCode | Add-Member -NotePropertyName enabled -NotePropertyValue $stable.claudeCode.enabled -Force
-    $config.claudeCode | Add-Member -NotePropertyName desktopMode -NotePropertyValue $stable.claudeCode.desktopMode -Force
-    $config.claudeCode | Add-Member -NotePropertyName intercept -NotePropertyValue ([pscustomobject]@{ enabled = $interceptOn; port = $interceptPort }) -Force
-    if ($interceptOn) {
-        $destination = Join-Path $devState 'claude-intercept'
-        New-PrivateDirectory $destination
-        foreach ($file in 'ca.key', 'ca.pem', 'proxy-token') {
-            $identityFile = Join-Path $destination $file
-            Assert-LocalPath $identityFile
-            Copy-Item -LiteralPath (Join-Path $stableState "claude-intercept\$file") -Destination $identityFile -Force
-        }
-    }
-    $token = Join-Path $stableState 'service-api-token'
-    if (Test-Path -LiteralPath $token) {
-        Copy-Item -LiteralPath $token -Destination (Join-Path $devState 'service-api-token') -Force
-    }
-
-    Set-DevEnvironment
-    $payload = $config | ConvertTo-Json -Depth 100
-    $payload | & $bun run $entry config validate - --json | Out-Null
-    if ($LASTEXITCODE) { throw 'Der Dev-Checkout hat die vorbereitete Konfiguration abgelehnt.' }
-    $staged = Join-Path $devState 'config.switch.tmp'
-    [IO.File]::WriteAllText($staged, $payload, (New-Object Text.UTF8Encoding($false)))
-    if (Test-Path -LiteralPath $target) {
-        [IO.File]::Replace($staged, $target, (Join-Path $devState 'config.before-switch.json'))
-    } else {
-        [IO.File]::Move($staged, $target)
-    }
-    if ($interceptOn) { return $interceptPort }
-    return 0
+    if ($config.claudeCode.enabled -eq $false -or $config.claudeCode.intercept.enabled -eq $false) { return 0 }
+    if ($config.claudeCode.intercept.port) { return [int]$config.claudeCode.intercept.port }
+    return ($port + 100)
 }
 
 function Start-Stable {
@@ -151,11 +108,9 @@ function Start-Stable {
     Wait-PortState 'Stable'
 }
 
-function Stop-Stable {
-    # Reuse the installed release's checked stop, including any surviving Scheduler wrapper.
-    # Both clients keep the same endpoint, so release its receipt without restoring native routing.
-    $previousHome = $env:OPENCODEX_HOME
-    $env:OPENCODEX_HOME = $stableState
+function Stop-SharedProxy {
+    # Use the installed release's checked stop for either process using the service home.
+    # Both versions serve the same endpoint, so keep the clients pointed at it.
     Push-Location -LiteralPath $stablePackage
     try {
         @'
@@ -164,30 +119,7 @@ const result = await windowsServiceStopBeforeRestore();
 if (!result.ok) process.exit(1);
 completeWindowsServiceStopReceipt(result.nonce);
 '@ | & $stableBun run -
-        if ($LASTEXITCODE) { throw 'Der installierte Stable-Dienst konnte nicht sicher angehalten werden.' }
-    } finally {
-        Pop-Location
-        $env:OPENCODEX_HOME = $previousHome
-    }
-    Wait-PortState 'Free'
-}
-
-function Stop-Dev {
-    $owner = Get-ListenerOwner $port
-    if (!$owner -or $owner -ne (Read-ProxyPid $devState)) {
-        throw 'Der Prozess auf Port 10100 gehoert nicht zur Dev-Instanz.'
-    }
-    Set-DevEnvironment
-    $env:OCX_SWITCH_DEV_PID = "$owner"
-    Push-Location -LiteralPath $repo
-    try {
-        @'
-import { resolveTrackedProxyTarget, stopTrackedProxyIfRunning } from "./src/service/orchestration.ts";
-const target = await resolveTrackedProxyTarget();
-if (!target || target.pid !== Number(process.env.OCX_SWITCH_DEV_PID) || target.endpoint?.port !== 10100) process.exit(1);
-await stopTrackedProxyIfRunning({ target });
-'@ | & $bun run -
-        if ($LASTEXITCODE) { throw 'Dev konnte nicht sauber beendet werden.' }
+        if ($LASTEXITCODE) { throw 'Der laufende Proxy konnte nicht sicher angehalten werden.' }
     } finally {
         Pop-Location
     }
@@ -195,7 +127,14 @@ await stopTrackedProxyIfRunning({ target });
 }
 
 if ($Action -eq 'Status') {
-    Write-Host "Port ${port}: $(Get-PortState)"
+    $current = Get-PortState
+    $description = switch ($current) {
+        'Dev' { 'Dev (gemeinsame Konfiguration)' }
+        'Stable' { 'Stable (gemeinsame Konfiguration)' }
+        'LegacyDev' { 'Dev (bisherige separate Konfiguration)' }
+        default { $current }
+    }
+    Write-Host "Port ${port}: $description"
     return
 }
 
@@ -207,53 +146,60 @@ try {
     if (!$locked) { throw 'Ein Proxy-Wechsel laeuft bereits.' }
     $current = Get-PortState
     if ($current -eq $Action) { Write-Host "$Action laeuft bereits auf Port $port."; return }
-    if ($current -notin @('Free', 'Stable', 'Dev')) { throw "Port $port hat keinen verifizierten OpenCodex-Prozess ($current)." }
+    if ($current -notin @('Free', 'Stable', 'Dev', 'LegacyDev')) { throw "Port $port hat keinen verifizierten OpenCodex-Prozess ($current)." }
     $task = Get-StableTask
     if ($Action -eq 'Dev' -and $current -eq 'Free' -and $task.State -eq 'Running') {
         throw 'Der Stable-Dienst startet gerade. Warte auf Port 10100 und versuche es erneut.'
     }
-    if ($current -eq 'Stable' -and ($task.State -ne 'Running' -or !(Test-Path -LiteralPath $stableBun) -or !(Test-Path -LiteralPath $stableStopModule))) {
+    if ($current -eq 'Stable' -and $task.State -ne 'Running') {
         throw 'Der installierte Stable-Dienst ist nicht fuer den Wechsel verfuegbar.'
     }
-    if (($Action -eq 'Dev' -or $current -eq 'Dev') -and (!(Test-Path -LiteralPath $bun) -or !(Test-Path -LiteralPath $entry))) {
+    foreach ($file in $stableBun, $stableEntry, $stableStopModule) {
+        if (!(Test-Path -LiteralPath $file)) { throw 'Die installierte Stable-Version ist nicht vollstaendig.' }
+    }
+    if (($Action -eq 'Dev') -and (!(Test-Path -LiteralPath $bun) -or !(Test-Path -LiteralPath $entry))) {
         throw 'Bun oder der Dev-Checkout fehlt.'
     }
-    if (!$PSCmdlet.ShouldProcess("OpenCodex auf Port $port", "Auf $Action wechseln")) { return }
-
-    if ($Action -eq 'Stable') {
-        if ($current -eq 'Dev') { Stop-Dev }
-        Start-Stable
-        Write-Host "Stable laeuft auf Port $port."
-        return
-    }
-
-    $interceptPort = Prepare-Dev
-    $stableOwner = Read-ProxyPid $stableState
-    if ($interceptPort -and (Get-ListenerOwner $interceptPort) -notin @(0, $stableOwner)) {
+    Set-SharedEnvironment
+    $interceptPort = if ($Action -eq 'Dev') { Confirm-SharedConfig $bun $entry }
+        else { Confirm-SharedConfig $stableBun $stableEntry }
+    if ($interceptPort -and (Get-ListenerOwner $interceptPort) -notin @(0, (Get-ListenerOwner $port))) {
         throw "Claude-Proxyport $interceptPort ist von einem anderen Prozess belegt."
     }
+    if (!$PSCmdlet.ShouldProcess("OpenCodex auf Port $port", "Auf $Action wechseln")) { return }
+    if ($current -eq 'LegacyDev') {
+        $oldOwner = Get-ListenerOwner $port
+        throw "Beende vor dem ersten Wechsel die bisherige separate Dev-Instanz (PID $oldOwner). Ihre Konfiguration bleibt erhalten."
+    }
+
     $devProcess = $null
     try {
-        if ($current -eq 'Stable') { Stop-Stable }
+        if ($current -ne 'Free') { Stop-SharedProxy }
         Wait-PortState 'Free'
-        $devProcess = Start-Process -FilePath $bun -WorkingDirectory $repo -ArgumentList @('run', ('"' + $entry + '"'), 'start', '--port', $port) -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $devState 'switch.stdout.log') -RedirectStandardError (Join-Path $devState 'switch.stderr.log')
+        if ($Action -eq 'Stable') {
+            Start-Stable
+            Write-Host "Stable laeuft auf Port $port."
+            return
+        }
+        $env:OCX_SERVICE = '1'
+        $devProcess = Start-Process -FilePath $bun -WorkingDirectory $repo -ArgumentList @('run', ('"' + $entry + '"'), 'start', '--port', $port) -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $stableState 'dev-switch.stdout.log') -RedirectStandardError (Join-Path $stableState 'dev-switch.stderr.log')
         Wait-PortState 'Dev'
-        if ($interceptPort -and (Get-ListenerOwner $interceptPort) -ne (Read-ProxyPid $devState)) {
+        if ($interceptPort -and (Get-ListenerOwner $interceptPort) -ne (Read-ProxyPid $stableState)) {
             throw "Dev hat den Claude-Proxy auf Port $interceptPort nicht uebernommen."
         }
         Write-Host "Dev laeuft auf Port $port."
     } catch {
+        if ($Action -eq 'Stable') { throw }
         $failure = $_.Exception.Message
         try {
             if ($devProcess) {
-                # Stop only the process created by this attempt if startup did not finish.
                 $devProcess.Refresh()
-                if (!$devProcess.HasExited) {
-                    $devProcess.Kill()
-                    if (!$devProcess.WaitForExit(5000)) { throw 'Der Dev-Startprozess konnte nicht beendet werden.' }
+                if (!$devProcess.HasExited -and (Get-PortState) -eq 'Dev' -and (Get-ListenerOwner $port) -eq $devProcess.Id) {
+                    Stop-SharedProxy
+                    $devProcess.Refresh()
                 }
+                if (!$devProcess.HasExited) { throw 'Der gestartete Dev-Prozess antwortet noch nicht oder wird gerade beendet.' }
             }
-            Wait-PortState $(if ((Get-PortState) -eq 'Stable') { 'Stable' } else { 'Free' })
             Start-Stable
         } catch {
             throw "$failure Stable konnte nicht wiederhergestellt werden. $($_.Exception.Message)"
