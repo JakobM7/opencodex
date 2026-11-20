@@ -1,11 +1,11 @@
 @echo off
 setlocal DisableDelayedExpansion
-echo Waehle Client und Proxy: Stable = installiert, Dev = aus dem Checkout.
+echo Waehle Client und Proxy. 10100 = Standard, 10101 = separater Dev-Proxy.
 echo.
-echo 1. Codex - Stable
-echo 2. Codex - Dev
-echo 3. Claude Code - Stable
-echo 4. Claude Code - Dev
+echo 1. Codex - 10100
+echo 2. Codex - 10101
+echo 3. Claude Code - 10100
+echo 4. Claude Code - 10101
 choice /c 1234 /n /m "Auswahl [1-4]: "
 set "selection=%errorlevel%"
 if "%selection%"=="0" exit /b 1
