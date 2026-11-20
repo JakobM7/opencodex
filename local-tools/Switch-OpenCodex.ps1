@@ -8,6 +8,8 @@ $sharedConfig = Join-Path $stableState 'config.json'
 $repo = Split-Path -Parent $PSScriptRoot
 $bun = Join-Path $repo 'node_modules\bun\bin\bun.exe'
 $entry = Join-Path $repo 'src\cli\index.ts'
+$devProcessHelper = Join-Path $PSScriptRoot 'dev-switch-process.ts'
+$devLog = Join-Path $stableState 'dev-switch.stderr.log'
 $stablePackage = Join-Path $env:APPDATA 'npm\node_modules\@bitkyc08\opencodex'
 $stableBun = Join-Path $stablePackage 'node_modules\bun\bin\bun.exe'
 $stableEntry = Join-Path $stablePackage 'src\cli\index.ts'
@@ -17,7 +19,7 @@ $taskName = 'opencodex-proxy'
 $taskPath = '\'
 
 function Get-ListenerOwner([int]$ListenPort) {
-    $owners = @(Get-NetTCPConnection -LocalPort $ListenPort -State Listen -ErrorAction SilentlyContinue |
+    $owners = @(Get-NetTCPConnection -State Listen | Where-Object LocalPort -eq $ListenPort |
         Select-Object -ExpandProperty OwningProcess -Unique)
     if ($owners.Count -gt 1) { throw "Mehrere Prozesse lauschen auf Port $ListenPort." }
     if ($owners.Count) { return $owners[0] }
@@ -42,13 +44,13 @@ function Get-PortState {
     $kind = if ($process.ExecutablePath -eq $bun -and $process.CommandLine -like "*$entry*") {
         if ($owner -eq $sharedOwner) { 'Dev' }
         elseif ($owner -eq $legacyOwner) { 'LegacyDev' }
-        else { 'Unknown' }
-    } elseif ($owner -eq $sharedOwner -and $process.ExecutablePath -eq $stableBun -and $process.CommandLine -like "*$stableEntry*") {
-        'Stable'
+        else { 'Starting' }
+    } elseif ($process.ExecutablePath -eq $stableBun -and $process.CommandLine -like "*$stableEntry*") {
+        if ($owner -eq $sharedOwner) { 'Stable' } else { 'Starting' }
     } else {
         'Unknown'
     }
-    if ($kind -eq 'Unknown') { return $kind }
+    if ($kind -in @('Unknown', 'Starting')) { return $kind }
     try {
         $health = Invoke-RestMethod "http://127.0.0.1:$port/healthz" -TimeoutSec 2
         if ($health.status -eq 'ok' -and $health.pid -eq $owner -and $health.port -eq $port) { return $kind }
@@ -56,13 +58,29 @@ function Get-PortState {
     return 'Starting'
 }
 
-function Wait-PortState([string]$Expected) {
+function Wait-PortState([string]$Expected, [int]$ClaudePort = 0, [Diagnostics.Process]$Launched = $null) {
     $deadline = [datetime]::UtcNow.AddSeconds(25)
     do {
-        if ((Get-PortState) -eq $Expected) { return }
+        if ($Launched -and $Launched.HasExited) {
+            throw "Dev wurde mit Exitcode $($Launched.ExitCode) beendet. Details in $devLog"
+        }
+        $state = Get-PortState
+        if ($state -eq 'Unknown') {
+            $owner = Get-ListenerOwner $port
+            if ($owner -and (!$Launched -or $owner -ne $Launched.Id)) {
+                throw "Ein anderer Prozess belegt Port $port (PID $owner)."
+            }
+        }
+        if ($state -eq $Expected) {
+            if (!$Launched -and !$ClaudePort) { return }
+            $owner = Get-ListenerOwner $port
+            if ($Launched -and $owner -ne $Launched.Id) { throw "Ein anderer Dev-Prozess belegt Port $port." }
+            if (!$ClaudePort -or ($owner -and (Get-ListenerOwner $ClaudePort) -eq $owner)) { return }
+        }
         Start-Sleep -Milliseconds 400
     } while ([datetime]::UtcNow -lt $deadline)
-    throw "Port $port hat den erwarteten Zustand $Expected nicht erreicht."
+    if ($state -eq $Expected -and $ClaudePort) { throw "$Expected hat den Claude-Proxyport $ClaudePort nicht rechtzeitig uebernommen." }
+    throw "Port $port hat den erwarteten Zustand $Expected nicht rechtzeitig erreicht."
 }
 
 function Get-StableTask {
@@ -93,19 +111,21 @@ function Confirm-SharedConfig([string]$Runtime, [string]$Cli) {
         throw 'Die gemeinsame Konfiguration muss ein eigenstaendiger Proxy auf Port 10100 sein.'
     }
     & $Runtime $Cli config validate $sharedConfig --json | Out-Null
-    if ($LASTEXITCODE) { throw "Die Zielversion hat die gemeinsame Konfiguration abgelehnt. Der laufende Proxy bleibt aktiv." }
+    if ($LASTEXITCODE) { throw 'Die Zielversion hat die gemeinsame Konfiguration abgelehnt.' }
 
     if ($config.claudeCode.enabled -eq $false -or $config.claudeCode.intercept.enabled -eq $false) { return 0 }
     if ($config.claudeCode.intercept.port) { return [int]$config.claudeCode.intercept.port }
     return ($port + 100)
 }
 
-function Start-Stable {
+function Start-Stable([int]$ClaudePort) {
     $current = Get-PortState
-    if ($current -eq 'Stable' -and (Get-StableTask).State -eq 'Running') { return }
-    if ($current -ne 'Free') { throw "Port $port ist belegt. Stable wurde nicht gestartet." }
-    Get-StableTask | Start-ScheduledTask
-    Wait-PortState 'Stable'
+    $task = Get-StableTask
+    if ($current -eq 'Free' -and $task.State -eq 'Ready') { $task | Start-ScheduledTask }
+    elseif ($task.State -ne 'Running' -or $current -notin @('Free', 'Starting', 'Stable')) {
+        throw "Port $port oder der Stable-Dienst ist nicht zum Start bereit."
+    }
+    Wait-PortState 'Stable' $ClaudePort
 }
 
 function Stop-SharedProxy {
@@ -115,9 +135,14 @@ function Stop-SharedProxy {
     try {
         @'
 import { windowsServiceStopBeforeRestore, completeWindowsServiceStopReceipt } from "./src/service/cli-windows-stop.ts";
-const result = await windowsServiceStopBeforeRestore();
-if (!result.ok) process.exit(1);
-completeWindowsServiceStopReceipt(result.nonce);
+try {
+    const result = await windowsServiceStopBeforeRestore();
+    if (result.ok) completeWindowsServiceStopReceipt(result.nonce);
+    else process.exitCode = 1;
+} catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+}
 '@ | & $stableBun run -
         if ($LASTEXITCODE) { throw 'Der laufende Proxy konnte nicht sicher angehalten werden.' }
     } finally {
@@ -126,30 +151,42 @@ completeWindowsServiceStopReceipt(result.nonce);
     Wait-PortState 'Free'
 }
 
-if ($Action -eq 'Status') {
-    $current = Get-PortState
-    $description = switch ($current) {
-        'Dev' { 'Dev (gemeinsame Konfiguration)' }
-        'Stable' { 'Stable (gemeinsame Konfiguration)' }
-        'LegacyDev' { 'Dev (bisherige separate Konfiguration)' }
-        default { $current }
-    }
-    Write-Host "Port ${port}: $description"
-    return
+function Invoke-DevProcessHelper([string]$Mode, [int]$ProcessId, [long]$StartTime = 0) {
+    & $bun run $devProcessHelper $Mode $ProcessId $StartTime
+    if ($LASTEXITCODE) { throw "Dev-Prozessaktion fuer PID $ProcessId fehlgeschlagen." }
 }
 
-$mutex = New-Object Threading.Mutex($false, 'Local\JakobM7.OpenCodexSwitch10100')
+$mutex = $null
 $locked = $false
 try {
+    if ($Action -eq 'Status') {
+        $description = switch (Get-PortState) {
+            'Dev' { 'Dev (gemeinsame Konfiguration)' }
+            'Stable' { 'Stable (gemeinsame Konfiguration)' }
+            'LegacyDev' { 'Dev (bisherige separate Konfiguration)' }
+            'Starting' { 'OpenCodex antwortet noch nicht' }
+            'Free' { 'frei' }
+            default { "belegt durch einen unbekannten Prozess (PID $(Get-ListenerOwner $port))" }
+        }
+        Write-Host "Port ${port}: $description"
+        return
+    }
+    $mutex = New-Object Threading.Mutex($false, 'Local\JakobM7.OpenCodexSwitch10100')
     try { $locked = $mutex.WaitOne(0) }
     catch [Threading.AbandonedMutexException] { $locked = $true }
     if (!$locked) { throw 'Ein Proxy-Wechsel laeuft bereits.' }
-    $current = Get-PortState
-    if ($current -eq $Action) { Write-Host "$Action laeuft bereits auf Port $port."; return }
-    if ($current -notin @('Free', 'Stable', 'Dev', 'LegacyDev')) { throw "Port $port hat keinen verifizierten OpenCodex-Prozess ($current)." }
     $task = Get-StableTask
-    if ($Action -eq 'Dev' -and $current -eq 'Free' -and $task.State -eq 'Running') {
-        throw 'Der Stable-Dienst startet gerade. Warte auf Port 10100 und versuche es erneut.'
+    $current = Get-PortState
+    if ($task.State -eq 'Running' -and $current -in @('Free', 'Starting')) {
+        Wait-PortState 'Stable'
+        $current = Get-PortState
+    }
+    if ($current -eq $Action) { Write-Host "$Action laeuft bereits auf Port $port."; return }
+    if ($current -eq 'Starting') { throw "OpenCodex auf Port $port antwortet noch nicht. Warte kurz und waehle erneut." }
+    if ($current -eq 'Unknown') { throw "Port $port ist durch einen unbekannten Prozess belegt (PID $(Get-ListenerOwner $port))." }
+    if ($task.State -notin @('Ready', 'Running')) { throw 'Der installierte Stable-Dienst ist deaktiviert oder nicht startbereit.' }
+    if ($current -eq 'LegacyDev' -and $task.State -ne 'Ready') {
+        throw 'Der Stable-Dienst ist aktiv. Die Migration kann erst bei inaktivem Dienst beginnen.'
     }
     if ($current -eq 'Stable' -and $task.State -ne 'Running') {
         throw 'Der installierte Stable-Dienst ist nicht fuer den Wechsel verfuegbar.'
@@ -157,56 +194,71 @@ try {
     foreach ($file in $stableBun, $stableEntry, $stableStopModule) {
         if (!(Test-Path -LiteralPath $file)) { throw 'Die installierte Stable-Version ist nicht vollstaendig.' }
     }
-    if (($Action -eq 'Dev') -and (!(Test-Path -LiteralPath $bun) -or !(Test-Path -LiteralPath $entry))) {
-        throw 'Bun oder der Dev-Checkout fehlt.'
+    if ($Action -eq 'Dev' -or $current -eq 'LegacyDev') {
+        foreach ($file in $bun, $entry, $devProcessHelper) {
+            if (!(Test-Path -LiteralPath $file)) { throw 'Bun oder der Dev-Checkout fehlt.' }
+        }
     }
     Set-SharedEnvironment
-    $interceptPort = if ($Action -eq 'Dev') { Confirm-SharedConfig $bun $entry }
-        else { Confirm-SharedConfig $stableBun $stableEntry }
+    $stableClaudePort = Confirm-SharedConfig $stableBun $stableEntry
+    $interceptPort = if ($Action -eq 'Dev') { Confirm-SharedConfig $bun $entry } else { $stableClaudePort }
     if ($interceptPort -and (Get-ListenerOwner $interceptPort) -notin @(0, (Get-ListenerOwner $port))) {
         throw "Claude-Proxyport $interceptPort ist von einem anderen Prozess belegt."
     }
-    if (!$PSCmdlet.ShouldProcess("OpenCodex auf Port $port", "Auf $Action wechseln")) { return }
+    $legacyOwner = 0
     if ($current -eq 'LegacyDev') {
-        $oldOwner = Get-ListenerOwner $port
-        throw "Beende vor dem ersten Wechsel die bisherige separate Dev-Instanz (PID $oldOwner). Ihre Konfiguration bleibt erhalten."
+        $legacyOwner = Get-ListenerOwner $port
+        Invoke-DevProcessHelper 'verify-legacy' $legacyOwner
     }
+    if (!$PSCmdlet.ShouldProcess("OpenCodex auf Port $port", "Auf $Action wechseln")) { return }
 
     $devProcess = $null
+    $devStartTime = 0
     try {
-        if ($current -ne 'Free') { Stop-SharedProxy }
+        if ($legacyOwner) {
+            Write-Host 'Stelle die bisherige Dev-Instanz auf die gemeinsame Konfiguration um.'
+            if ((Get-StableTask).State -ne 'Ready' -or (Get-PortState) -ne 'LegacyDev' -or (Get-ListenerOwner $port) -ne $legacyOwner) {
+                throw 'Die Ausgangslage hat sich geaendert. Waehle den Wechsel erneut.'
+            }
+            Invoke-DevProcessHelper 'stop-legacy' $legacyOwner
+        } elseif ($current -ne 'Free') { Stop-SharedProxy }
         Wait-PortState 'Free'
         if ($Action -eq 'Stable') {
-            Start-Stable
+            Start-Stable $stableClaudePort
             Write-Host "Stable laeuft auf Port $port."
             return
         }
         $env:OCX_SERVICE = '1'
-        $devProcess = Start-Process -FilePath $bun -WorkingDirectory $repo -ArgumentList @('run', ('"' + $entry + '"'), 'start', '--port', $port) -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $stableState 'dev-switch.stdout.log') -RedirectStandardError (Join-Path $stableState 'dev-switch.stderr.log')
-        Wait-PortState 'Dev'
-        if ($interceptPort -and (Get-ListenerOwner $interceptPort) -ne (Read-ProxyPid $stableState)) {
-            throw "Dev hat den Claude-Proxy auf Port $interceptPort nicht uebernommen."
-        }
+        $devProcess = Start-Process -FilePath $bun -WorkingDirectory $repo -ArgumentList @('run', ('"' + $entry + '"'), 'start', '--port', $port) -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $stableState 'dev-switch.stdout.log') -RedirectStandardError $devLog
+        try { $devStartTime = $devProcess.StartTime.ToUniversalTime().Ticks }
+        catch { if (!$devProcess.HasExited) { throw } }
+        Wait-PortState 'Dev' $interceptPort $devProcess
         Write-Host "Dev laeuft auf Port $port."
     } catch {
         if ($Action -eq 'Stable') { throw }
         $failure = $_.Exception.Message
         try {
-            if ($devProcess) {
-                $devProcess.Refresh()
-                if (!$devProcess.HasExited -and (Get-PortState) -eq 'Dev' -and (Get-ListenerOwner $port) -eq $devProcess.Id) {
-                    Stop-SharedProxy
-                    $devProcess.Refresh()
-                }
-                if (!$devProcess.HasExited) { throw 'Der gestartete Dev-Prozess antwortet noch nicht oder wird gerade beendet.' }
+            if ($devProcess -and !$devProcess.HasExited) {
+                if (!$devStartTime) { throw 'Der Zeitpunkt des Dev-Starts konnte nicht verifiziert werden.' }
+                Invoke-DevProcessHelper 'stop-attempt' $devProcess.Id $devStartTime
+                if (!$devProcess.WaitForExit(5000)) { throw 'Der gestartete Dev-Prozess ist noch aktiv.' }
             }
-            Start-Stable
+            if ($legacyOwner -and (Get-ListenerOwner $port) -eq $legacyOwner -and (Get-PortState) -eq 'LegacyDev') {
+                throw 'Die bisherige Dev-Instanz laeuft weiterhin.'
+            }
+            if ((Get-PortState) -eq 'Free') {
+                $stableClaudePort = Confirm-SharedConfig $stableBun $stableEntry
+            }
+            Start-Stable $stableClaudePort
         } catch {
             throw "$failure Stable konnte nicht wiederhergestellt werden. $($_.Exception.Message)"
         }
         throw "$failure Stable laeuft auf Port $port."
     }
+} catch {
+    [Console]::Error.WriteLine($_.Exception.Message)
+    exit 1
 } finally {
     if ($locked) { $mutex.ReleaseMutex() }
-    $mutex.Dispose()
+    if ($mutex) { $mutex.Dispose() }
 }
