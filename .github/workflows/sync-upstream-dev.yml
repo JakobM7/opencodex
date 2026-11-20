@@ -24,13 +24,9 @@ jobs:
         shell: bash
         run: |
           upstream_sha=$(gh api "repos/$UPSTREAM/git/ref/heads/dev" --jq '.object.sha')
-          fork_sha=$(gh api "repos/$FORK/git/matching-refs/heads/dev" \
-            --jq '.[] | select(.ref == "refs/heads/dev") | .object.sha')
+          fork_sha=$(gh api "repos/$FORK/git/ref/heads/dev" --jq '.object.sha')
 
-          if [[ -z "$fork_sha" ]]; then
-            gh api --method POST "repos/$FORK/git/refs" \
-              -f ref=refs/heads/dev -f sha="$upstream_sha" --jq .object.sha
-          elif [[ "$fork_sha" != "$upstream_sha" ]]; then
+          if [[ "$fork_sha" != "$upstream_sha" ]]; then
             ancestry=$(gh api "repos/$FORK/compare/$fork_sha...$upstream_sha" --jq .status)
             if [[ "$ancestry" != "ahead" ]]; then
               echo "::error::Fork dev cannot fast-forward to upstream dev ($ancestry)."
