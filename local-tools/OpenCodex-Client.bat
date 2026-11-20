@@ -1,14 +1,12 @@
 @echo off
 setlocal DisableDelayedExpansion
-echo Waehle das Programm und den OpenCodex-Proxy fuer diese Sitzung.
+echo Waehle Client und Proxy: Stable = installiert, Dev = aus dem Checkout.
 echo.
-echo 1. Codex CLI mit installiertem OpenCodex starten [Port 10100]
-echo 2. Codex CLI mit OpenCodex aus dem Entwicklungs-Checkout starten [Port 10101]
-echo 3. Claude Code mit installiertem OpenCodex starten [Port 10100]
-echo 4. Claude Code mit OpenCodex aus dem Entwicklungs-Checkout starten [Port 10101]
-echo.
-echo Normale Arbeit: 1 oder 3. OpenCodex-Code testen: 2 oder 4.
-choice /c 1234 /n /m "Welche Sitzung starten? [1-4] "
+echo 1. Codex - Stable
+echo 2. Codex - Dev
+echo 3. Claude Code - Stable
+echo 4. Claude Code - Dev
+choice /c 1234 /n /m "Auswahl [1-4]: "
 set "selection=%errorlevel%"
 if "%selection%"=="0" exit /b 1
 if "%selection%"=="255" exit /b 1
