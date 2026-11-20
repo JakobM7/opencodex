@@ -98,6 +98,7 @@ export default function ProviderSettings({
   const [modeSaving, setModeSaving] = useState(false);
   const [modeMsg, setModeMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [baseUrlChoices, setBaseUrlChoices] = useState<CatalogPreset["baseUrlChoices"]>();
+  const [presetAdapterChoices, setPresetAdapterChoices] = useState<{ name: string; choices: string[] }>();
   // "" is the same-origin dashboard and must load like any other server base.
   const [choicesStatus, setChoicesStatus] = useState<ChoicesStatus>(apiBase !== undefined ? "loading" : "idle");
   const [endpointChoice, setEndpointChoice] = useState(() => "custom");
@@ -157,6 +158,7 @@ export default function ProviderSettings({
         const preset = (d.providers ?? []).find(p => p.id === providerId);
         const choices = preset?.baseUrlChoices;
         setBaseUrlChoices(choices);
+        setPresetAdapterChoices(preset?.adapterChoices?.length ? { name: providerId, choices: preset.adapterChoices } : undefined);
         setChoicesStatus("ready");
         setEndpointChoice(matchChoiceId(choices, savedBaseUrl));
       })
@@ -222,11 +224,12 @@ export default function ProviderSettings({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [availableModels, defaultModel, item.defaultModel]);
 
+  const presetAdapters = presetAdapterChoices?.name === item.name ? presetAdapterChoices.choices : undefined;
   const adapterOptions = useMemo(() => {
-    const list = [...ADAPTERS] as string[];
+    const list = [...(presetAdapters ?? ADAPTERS)];
     if (adapter && !list.includes(adapter)) list.unshift(adapter);
     return list;
-  }, [adapter]);
+  }, [adapter, presetAdapters]);
 
   const isPreset = isCatalogProviderId(item.name);
   const hasEndpointPicker = choicesStatus === "ready" && !!(baseUrlChoices && baseUrlChoices.length > 0);
@@ -391,7 +394,7 @@ export default function ProviderSettings({
       </label>
       <label className="pwi-settings-field">
         <span className="pwi-settings-label">{t("modal.adapter")}</span>
-        {isPreset ? <input className="input" value={adapter} readOnly disabled /> : (
+        {isPreset && !presetAdapters ? <input className="input" value={adapter} readOnly disabled /> : (
           <select className="input" value={adapter} onChange={e => setAdapter(e.target.value)}>
             {adapterOptions.map(a => <option key={a} value={a}>{a}</option>)}
           </select>

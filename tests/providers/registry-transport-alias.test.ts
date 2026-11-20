@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { enrichProviderFromRegistry } from "../../src/providers/derive";
+import { deriveProviderPresets, enrichProviderFromRegistry } from "../../src/providers/derive";
 import { providerMatchesRegistryTransport, registryEntryForProviderDestination } from "../../src/providers/registry";
 import { deepseekReasoningMapFor } from "../../src/providers/registry/model-seeds";
-import { captureRouteStaticPolicy, routedProviderConfig } from "../../src/router";
-import type { OcxProviderConfig } from "../../src/types";
+import { captureRouteStaticPolicy, routeModel, routedProviderConfig } from "../../src/router";
+import type { OcxConfig, OcxProviderConfig } from "../../src/types";
 
 test("a metadata alias on another adapter does not grant registry transport ownership", () => {
   // Volcengine's canonical row moved to Responses; saved Chat rows remain Chat.
@@ -61,4 +61,21 @@ test("non-Alibaba destination aliases fill effort defaults and maps while operat
   for (const row of [arkOperator, arkRouted]) {
     expect(row.modelReasoningEffortMap?.["deepseek-v4-flash"]).toEqual({ ...registryMap, medium: "low" });
   }
+});
+
+test("Neuralwatt honors either configured OpenAI wire without unlocking unrelated presets", () => {
+  const model = "deepseek-v4.1-flash";
+  const chat: OcxProviderConfig = { adapter: "openai-chat", baseUrl: "https://api.neuralwatt.com/v1" };
+  const responses = { ...chat, adapter: "openai-responses" };
+  const routed = routedProviderConfig("neuralwatt", responses);
+  expect(routed.adapter).toBe("openai-responses");
+  expect(deriveProviderPresets().find(entry => entry.id === "neuralwatt")?.adapterChoices)
+    .toEqual(["openai-chat", "openai-responses"]);
+  expect(routedProviderConfig("neuralwatt", chat).adapter).toBe("openai-chat");
+  expect(routedProviderConfig("neuralwatt", { ...responses, adapter: "anthropic" }).adapter).toBe("openai-chat");
+  expect(routedProviderConfig("groq", { ...responses, baseUrl: "https://api.groq.com/openai/v1" }).adapter).toBe("openai-chat");
+  const config: OcxConfig = { port: 10100, providers: { neuralwatt: responses } };
+  expect(routeModel(config, `neuralwatt/${model}`).provider.adapter).toBe("openai-responses");
+  config.providers.neuralwatt = { ...responses, modelAdapters: { [model]: "openai-chat" } };
+  expect(routeModel(config, `neuralwatt/${model}`).staticPolicy.model.adapter).toBe("openai-chat");
 });

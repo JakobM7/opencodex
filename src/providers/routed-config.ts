@@ -241,7 +241,7 @@ export function routedProviderConfig(providerName: string, provider: OcxProvider
 
   const resolved: OcxProviderConfig = {
     ...provider,
-    adapter: registryEntry.adapter,
+    adapter: staticPolicy.adapter ?? registryEntry.adapter,
     baseUrl,
     ...(provider.responsesPath === undefined && registryEntry.responsesPath !== undefined
       ? { responsesPath: registryEntry.responsesPath }

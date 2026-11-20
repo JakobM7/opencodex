@@ -6,7 +6,7 @@ import ProviderSettings from "../src/components/provider-workspace/ProviderSetti
 import type { ProviderUpdatePatch } from "../src/components/provider-workspace/types";
 import { LanguageProvider } from "../src/i18n/provider";
 import type { WorkspaceItem } from "../src/provider-workspace/catalog";
-import { selectValue } from "./helpers/custom-select";
+import { chooseOption, selectOptionValues, selectTrigger, selectValue } from "./helpers/custom-select";
 
 const globals = ["document", "window", "navigator", "localStorage", "IS_REACT_ACT_ENVIRONMENT"] as const;
 let previousGlobals: Record<(typeof globals)[number], unknown>;
@@ -43,7 +43,7 @@ function provider(liveModels?: boolean): WorkspaceItem {
   } as WorkspaceItem;
 }
 
-async function mountSettings(item: WorkspaceItem): Promise<{
+async function mountSettings(item: WorkspaceItem, apiBase?: string): Promise<{
   root: Root;
   container: HTMLElement;
   patches: ProviderUpdatePatch[];
@@ -59,6 +59,7 @@ async function mountSettings(item: WorkspaceItem): Promise<{
       <LanguageProvider>
         <ProviderSettings
           item={item}
+          apiBase={apiBase}
           onUpdateProvider={async (_name, patch) => {
             patches.push(patch);
             return { ok: true };
@@ -78,6 +79,27 @@ async function save(container: HTMLElement): Promise<void> {
     await Promise.resolve();
   });
 }
+
+test("Neuralwatt exposes only its two preset adapters and saves Responses", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string) => url.endsWith("/api/provider-presets")
+    ? Response.json({ providers: [{ id: "neuralwatt", adapterChoices: ["openai-chat", "openai-responses"] }] })
+    : new Response(null, { status: 404 })) as typeof fetch;
+  const { root, container, patches } = await mountSettings({
+    name: "neuralwatt", adapter: "openai-chat", baseUrl: "https://api.neuralwatt.com/v1", authMode: "key",
+  } as WorkspaceItem, "http://localhost");
+  try {
+    const adapter = selectTrigger(container, 'button[role="combobox"][data-value="openai-chat"]');
+    expect(await selectOptionValues(adapter)).toEqual(["openai-chat", "openai-responses"]);
+    await chooseOption(adapter, "openai-responses");
+    await save(container);
+    expect(patches[0]?.adapter).toBe("openai-responses");
+    expect(patches[0]?.baseUrl).toBeUndefined();
+  } finally {
+    await act(async () => { root.unmount(); });
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("an unrelated settings save does not materialize an omitted liveModels value", async () => {
   const { root, container, patches } = await mountSettings(provider());

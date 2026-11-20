@@ -109,6 +109,12 @@ region-pinned EU routes, is at [opper.ai/models](https://opper.ai/models). Opper
 | Cloudflare AI Gateway | `https://gateway.ai.cloudflare.com/v1/{account-id}/{gateway}/anthropic` |
 | …and more | opencode zen, Vercel AI Gateway, Venice, NanoGPT, Synthetic, Qianfan, Alibaba, Parallel, ZenMux, LiteLLM |
 
+**Neuralwatt Cloud** uses the same API key and `https://api.neuralwatt.com/v1` on both OpenAI wires.
+In **Providers → Neuralwatt Cloud → Settings**, choose `openai-responses` or `openai-chat` in the adapter field.
+Chat Completions remains the default. Neuralwatt’s [Codex guide](https://docs.neuralwatt.com/integrations/codex)
+documents Responses and notes a Qwen compatibility limitation. Its [Responses API](https://docs.neuralwatt.com/api/responses#limitations)
+retains reasoning through stored `previous_response_id` chaining, not when a client uses `store: false` and replays its own history.
+
 **Alibaba Token Plan** provides Beijing Personal Edition and International Team Edition
 presets. Both regions offer both subscription tiers. The presets keep static chat-model
 lists because upstream discovery also includes non-chat models. Existing selections and

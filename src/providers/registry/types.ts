@@ -139,6 +139,8 @@ export interface ProviderRegistryEntry {
    */
   freeTier?: boolean;
   allowBaseUrlOverride?: boolean;
+  /** Other OpenAI-compatible wires selectable at this fixed key-auth endpoint. */
+  alternateAdapters?: readonly ("openai-chat" | "openai-responses")[];
   /**
    * Do not claim an existing same-named key provider whose fixed destination differs from this
    * preset. Enable for newly promoted ids so an older custom key cannot be silently retargeted.

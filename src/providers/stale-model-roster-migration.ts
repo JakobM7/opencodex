@@ -8,7 +8,7 @@
  * does not list it either, nothing else can surface it.
  *
  * This rewrites one thing: a saved `models` list that is still byte-for-byte the roster
- * this file names as `from`, on a provider that still carries the registry adapter, and
+ * this file names as `from`, on a provider that still carries an allowed registry adapter, and
  * only while the registry currently seeds `to`. A list the user changed does not match and
  * is left alone. For each added id it also fills a per-model context window, output limit
  * and default effort, but only inside a container the row already has: enrichment fills
@@ -149,7 +149,8 @@ function sameList(value: unknown, expected: readonly string[]): boolean {
 
 function registrySeeds(provider: string, adapter: unknown, roster: readonly string[]): boolean {
   const entry = PROVIDER_REGISTRY.find(row => row.id === provider);
-  return entry !== undefined && entry.adapter === adapter && sameList(entry.models, roster);
+  return entry !== undefined && (entry.adapter === adapter || entry.alternateAdapters?.some(value => value === adapter) === true)
+    && sameList(entry.models, roster);
 }
 
 function servesRoster(baseUrl: unknown, destinations: readonly string[] | undefined): boolean {
