@@ -2,7 +2,7 @@
 
 Guidance for AI agents (and humans) working on or reviewing this repository.
 
-For JakobM7's fork, also follow the [local development instructions](local-tools/AGENTS_JakobM7.md).
+For JakobM7's fork, also follow the [local development instructions](AGENTS_JakobM7.md).
 
 ## What this project is
 
