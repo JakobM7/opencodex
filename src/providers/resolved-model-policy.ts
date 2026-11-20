@@ -6,10 +6,12 @@ import { resolveProviderAuthTransport } from "./fastwire";
 import { fastSwitchOff } from "./fast-opt-in";
 import { registryEntrySupportsLiveModelDiscovery } from "./static-model-discovery";
 import { normalizedProviderEndpoint } from "./registry";
+import { THINKING_BUDGET_EFFORTS } from "./registry/model-seeds";
 import type { InboundWire, ProviderRegistryEntry, ResponsesTerminalRepairPolicy } from "./registry/types";
 import {
   anthropicFamilyContextWindow,
   detachedClone,
+  isOldNeuralwattBudgetSeed,
   legacyModelValue,
   legacyModelSource,
   mapFill,
@@ -252,15 +254,17 @@ export function resolveModelPolicy(input: ResolveModelPolicyInput): ResolvedMode
   // This parser is opt-in: an explicit list, including [], overrides registry defaults.
   putScalar("inlineThinkTagModels", entry?.inlineThinkTagModels);
   for (const directModel of entry?.directReasoningEffortModels ?? []) {
+    const oldNeuralwattBudget = isOldNeuralwattBudgetSeed(entry!.id, directModel, provider.thinkingBudgetModels);
     const staleBudget = [directModel, ...(entry?.thinkingBudgetModels ?? [])];
     const routedStaleBudget = [...(entry?.thinkingBudgetModels ?? []), directModel];
-    if (sameStringArray(provider.thinkingBudgetModels, staleBudget)
+    if (oldNeuralwattBudget || sameStringArray(provider.thinkingBudgetModels, staleBudget)
       || sameStringArray(provider.thinkingBudgetModels, routedStaleBudget)) {
       providerPolicy.thinkingBudgetModels = [...(entry?.thinkingBudgetModels ?? [])];
       providerProvenance.thinkingBudgetModels = "registry";
     }
     const explicitEfforts = Object.entries(provider.modelReasoningEfforts ?? {})
-      .filter(([key]) => key.toLowerCase() === directModel.toLowerCase());
+      .filter(([key, value]) => key.toLowerCase() === directModel.toLowerCase()
+        && !(oldNeuralwattBudget && sameStringArray(value, THINKING_BUDGET_EFFORTS)));
     if (explicitEfforts.length > 0) {
       for (const key of Object.keys(providerPolicy.modelReasoningEfforts ?? {})) {
         if (key.toLowerCase() === directModel.toLowerCase()) delete providerPolicy.modelReasoningEfforts![key];

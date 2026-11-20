@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
 import { deriveProviderPresets, enrichProviderFromRegistry } from "../../src/providers/derive";
 import { providerMatchesRegistryTransport, registryEntryForProviderDestination } from "../../src/providers/registry";
-import { deepseekReasoningMapFor } from "../../src/providers/registry/model-seeds";
+import { deepseekReasoningMapFor, THINKING_BUDGET_EFFORTS, THINKING_BUDGET_MODELS } from "../../src/providers/registry/model-seeds";
 import { captureRouteStaticPolicy, routeModel, routedProviderConfig } from "../../src/router";
 import type { OcxConfig, OcxProviderConfig } from "../../src/types";
+import { projectStaleModelRosters, STALE_MODEL_ROSTERS } from "../../src/providers/stale-model-roster-migration";
+import { planNativeChatReasoningReplay } from "../../src/adapters/openai-chat/reasoning-replay";
+import { extractProviderModelItems, resolveProviderModelDiscovery } from "../../src/providers/model-discovery";
 
 test("a metadata alias on another adapter does not grant registry transport ownership", () => {
   // Volcengine's canonical row moved to Responses; saved Chat rows remain Chat.
@@ -60,6 +63,46 @@ test("non-Alibaba destination aliases fill effort defaults and maps while operat
   }
   for (const row of [arkOperator, arkRouted]) {
     expect(row.modelReasoningEffortMap?.["deepseek-v4-flash"]).toEqual({ ...registryMap, medium: "low" });
+  }
+});
+
+test("Neuralwatt refreshes only the old seed and repairs its generated Qwen budget", () => {
+  const seed = STALE_MODEL_ROSTERS.find(entry => entry.provider === "neuralwatt")!;
+  const model = "qwen3.6-35b";
+  const baseUrl = "https://api.neuralwatt.com/v1";
+  const config: OcxConfig = { port: 10100, providers: { neuralwatt: {
+    adapter: "openai-responses", baseUrl, models: [...seed.from],
+  } } };
+  expect(projectStaleModelRosters(config).changed).toBe(true);
+  expect(config.providers.neuralwatt?.models).toContain("deepseek-v4.1-flash");
+  config.providers.neuralwatt!.models = [...seed.from, "custom-model"];
+  expect(projectStaleModelRosters(config).changed).toBe(false);
+  const old: OcxProviderConfig = { adapter: "openai-chat", baseUrl,
+    thinkingBudgetModels: THINKING_BUDGET_MODELS, modelReasoningEfforts: { [model]: THINKING_BUDGET_EFFORTS } };
+  const routed = routedProviderConfig("neuralwatt", old);
+  expect(routed.thinkingBudgetModels).not.toContain(model);
+  expect(routed.modelReasoningEfforts?.[model]).toEqual(["none", "high"]);
+  expect(routedProviderConfig("neuralwatt", { ...old, thinkingBudgetModels: [model] }).thinkingBudgetModels).toContain(model);
+});
+
+test("Neuralwatt discovers chat models but excludes decision models on either OpenAI wire", () => {
+  const data = [{ id: "nw-flash" }, { id: "mammoth-1", metadata: { capabilities: { task: "decision" } } }];
+  for (const adapter of ["openai-chat", "openai-responses"]) {
+    const provider = { adapter, baseUrl: "https://api.neuralwatt.com/v1" };
+    const discovery = resolveProviderModelDiscovery("neuralwatt", provider);
+    expect(extractProviderModelItems({ data }, discovery)).toEqual({ ok: true, rawCount: 2, items: [data[0]] });
+  }
+});
+
+test("Neuralwatt Chat replays reasoning for DeepSeek and its advertised aliases", () => {
+  const provider = routedProviderConfig("neuralwatt", {
+    adapter: "openai-chat", baseUrl: "https://api.neuralwatt.com/v1",
+    preserveReasoningContentModels: ["glm-5.3"], // Already-saved, stale preset.
+  });
+  for (const model of ["deepseek-v4.1-flash", "deepseek-v4.1-flash-flex", "deepseek-v4.1-flash-speed", "nw-flash", "nw-flash-flex"]) {
+    const messages = [{ role: "assistant", content: "Working", reasoning: "Trace marker" }];
+    expect(planNativeChatReasoningReplay(messages, provider, model, undefined, true).apply()[0])
+      .toMatchObject({ reasoning_content: "Trace marker" });
   }
 });
 

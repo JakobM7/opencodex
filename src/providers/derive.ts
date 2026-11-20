@@ -1,10 +1,12 @@
 import { isAgyAcpProvider } from "../config/schema/agy-acp-references";
+import { THINKING_BUDGET_EFFORTS } from "./registry/model-seeds";
+import { modelRecordValue } from "../reasoning-effort";
 import type { CodexAccountMode, OcxProviderConfig } from "../types";
 import { COST_VENDOR_PRIORITY, getModelMetadata, getModelMetadataCaseInsensitive } from "../generated/model-metadata";
 import { cloneFastWire } from "./fastwire";
 import { isAzureModelMetadataDestination, publishedAzureModelMetadata, type AzureModelMetadata } from "./azure-model-metadata";
 import { resolveModelPolicy } from "./resolved-model-policy";
-import { mapFill, nestedMapFill, stableUnion } from "./resolved-model-policy-merge";
+import { isOldNeuralwattBudgetSeed, mapFill, nestedMapFill, stableUnion } from "./resolved-model-policy-merge";
 import { mergeReasoningModelCapabilities } from "./reasoning-capabilities";
 import {
   PROVIDER_REGISTRY,
@@ -191,12 +193,13 @@ export function applyDirectReasoningEffortContracts(
   for (const model of models) {
     // Old generated presets persisted the direct model at the front of the registry's budget
     // list. Routing merges registry-first, which moves that one stale entry to the end. Repair
-    // only those two exact generated shapes; any partial, reordered, or case-varied list is a
+    // the exact generated shapes below; any partial, reordered, or case-varied list is a
     // deliberate user value and remains untouched.
     const currentBudgetModels = entry.thinkingBudgetModels ?? [];
     const staleSeedShape = [model, ...currentBudgetModels];
     const staleRoutedShape = [...currentBudgetModels, model];
-    if (sameStringArray(explicit.thinkingBudgetModels, staleSeedShape)
+    const oldNeuralwattBudget = isOldNeuralwattBudgetSeed(entry.id, model, explicit.thinkingBudgetModels);
+    if (oldNeuralwattBudget || sameStringArray(explicit.thinkingBudgetModels, staleSeedShape)
       || sameStringArray(explicit.thinkingBudgetModels, staleRoutedShape)) {
       prov.thinkingBudgetModels = [...currentBudgetModels];
     }
@@ -204,7 +207,8 @@ export function applyDirectReasoningEffortContracts(
     const efforts = entry.modelReasoningEfforts?.[model];
     prov.modelReasoningEfforts = fillFoldedModelDefault(
       prov.modelReasoningEfforts,
-      explicit.modelReasoningEfforts,
+      oldNeuralwattBudget && sameStringArray(modelRecordValue(explicit.modelReasoningEfforts, model), THINKING_BUDGET_EFFORTS)
+        ? undefined : explicit.modelReasoningEfforts,
       model,
       efforts,
       value => [...value],
