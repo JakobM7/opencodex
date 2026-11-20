@@ -295,7 +295,7 @@ export default function App() {
   );
 
   const themeSwitch = <ThemeSwitch theme={theme} onChange={setTheme} />;
-  const displayedVersion: string = healthPoll.data ?? __APP_VERSION__;
+  const displayedVersion = (healthPoll.data ?? __APP_VERSION__) + __APP_VERSION_SUFFIX__;
 
   const [stopping, setStopping] = useState(false);
 

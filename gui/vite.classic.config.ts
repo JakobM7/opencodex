@@ -61,7 +61,10 @@ export default defineConfig({
   // The favicon and logo are served from the dashboard root, which the main build fills.
   publicDir: false,
   plugins: [classicOverlay(), react()],
-  define: { __APP_VERSION__: JSON.stringify(version) },
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
+    __APP_VERSION_SUFFIX__: JSON.stringify(existsSync(new URL('../.git', import.meta.url)) ? ' dev' : ''),
+  },
   build: {
     outDir: join(GUI, 'dist', 'classic'),
     emptyOutDir: true,

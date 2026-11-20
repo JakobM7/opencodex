@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -14,7 +14,10 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   // `@/` mirrors the registry blocks' import style (React Bits, Aceternity) so they drop in unchanged.
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  define: { __APP_VERSION__: JSON.stringify(version) },
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
+    __APP_VERSION_SUFFIX__: JSON.stringify(existsSync(new URL('../.git', import.meta.url)) ? ' dev' : ''),
+  },
   /* [Decision Log]
   - 목적: 로컬 Vite GUI가 실행 중인 opencodex API를 same-origin으로 호출해 CORS 잡음 없이 실제 데이터를 보여준다.
   - 대안 분석: API 없이 정적 화면만 띄우면 기능 검증이 불가능하고, 별도 프록시 서버는 유지보수 대상이 늘며, Vite 내장 proxy는 개발 시에만 기존 서버를 재사용한다.

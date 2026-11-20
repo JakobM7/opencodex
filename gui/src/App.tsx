@@ -328,7 +328,8 @@ export default function App() {
   );
 
   const themeSwitch = <ThemeSwitch theme={theme} onChange={setTheme} />;
-  const displayedVersion: string = healthPoll.data?.version ?? __APP_VERSION__;
+  const displayedVersion = healthPoll.data?.version ?? __APP_VERSION__;
+  const devLabel = __APP_VERSION_SUFFIX__.trim();
   // The sidebar status follows the health check: a failed or missing health route is "Offline",
   // never a default "Online". Before the first answer it stays Online, as the page itself
   // loaded from this proxy.
@@ -442,11 +443,11 @@ export default function App() {
     >
       <BrandMark className="ui-v2 brand-logo-v2 h-[24px] w-[27px]" label={t("app.logoAria")} />
       <span className="name">opencodex</span>
-      <span className="ver" title={displayedVersion}>v{displayedVersion}</span>
+      <span className="ver" title={displayedVersion + __APP_VERSION_SUFFIX__}>v{displayedVersion}{__APP_VERSION_SUFFIX__}</span>
     </button>
   );
   // The wide-screen strip carries the wordmark beside the collapse toggle; the version moves
-  // to the foot there, so this copy has none. The topbar and drawer keep `brand` above.
+  // to the foot there. Keep the short checkout marker next to the wide-screen wordmark.
   const stripBrand = (
     <button
       type="button"
@@ -458,6 +459,7 @@ export default function App() {
     >
       <BrandMark className="ui-v2 brand-logo-v2 h-[22px] w-[25px]" label={t("app.logoAria")} />
       <span className="name">opencodex</span>
+      {devLabel && <span className="ver">{devLabel}</span>}
     </button>
   );
 
