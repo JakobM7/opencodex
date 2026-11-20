@@ -36,7 +36,6 @@ export interface CatalogPreset {
    * Endpoint picker (e.g. Qwen Cloud). Choice without `baseUrl` = Custom (show text field).
    */
   baseUrlChoices?: Array<{ id: string; label: string; baseUrl?: string }>;
-  adapterChoices?: string[];
   codexAccountMode?: "direct" | "pool";
   provider?: ProviderPayload;
 }

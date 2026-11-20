@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { deriveProviderPresets, enrichProviderFromRegistry } from "../../src/providers/derive";
+import { enrichProviderFromRegistry } from "../../src/providers/derive";
 import { providerMatchesRegistryTransport, registryEntryForProviderDestination } from "../../src/providers/registry";
 import { deepseekReasoningMapFor, THINKING_BUDGET_EFFORTS, THINKING_BUDGET_MODELS } from "../../src/providers/registry/model-seeds";
-import { captureRouteStaticPolicy, routeModel, routedProviderConfig } from "../../src/router";
+import { captureRouteStaticPolicy, routedProviderConfig } from "../../src/router";
 import type { OcxConfig, OcxProviderConfig } from "../../src/types";
 import { projectStaleModelRosters, STALE_MODEL_ROSTERS } from "../../src/providers/stale-model-roster-migration";
 import { planNativeChatReasoningReplay } from "../../src/adapters/openai-chat/reasoning-replay";
@@ -71,7 +71,7 @@ test("Neuralwatt refreshes only the old seed and repairs its generated Qwen budg
   const model = "qwen3.6-35b";
   const baseUrl = "https://api.neuralwatt.com/v1";
   const config: OcxConfig = { port: 10100, providers: { neuralwatt: {
-    adapter: "openai-responses", baseUrl, models: [...seed.from],
+    adapter: "openai-chat", baseUrl, models: [...seed.from],
   } } };
   expect(projectStaleModelRosters(config).changed).toBe(true);
   expect(config.providers.neuralwatt?.models).toContain("deepseek-v4.1-flash");
@@ -104,21 +104,4 @@ test("Neuralwatt Chat replays reasoning for DeepSeek and its advertised aliases"
     expect(planNativeChatReasoningReplay(messages, provider, model, undefined, true).apply()[0])
       .toMatchObject({ reasoning_content: "Trace marker" });
   }
-});
-
-test("Neuralwatt honors either configured OpenAI wire without unlocking unrelated presets", () => {
-  const model = "deepseek-v4.1-flash";
-  const chat: OcxProviderConfig = { adapter: "openai-chat", baseUrl: "https://api.neuralwatt.com/v1" };
-  const responses = { ...chat, adapter: "openai-responses" };
-  const routed = routedProviderConfig("neuralwatt", responses);
-  expect(routed.adapter).toBe("openai-responses");
-  expect(deriveProviderPresets().find(entry => entry.id === "neuralwatt")?.adapterChoices)
-    .toEqual(["openai-chat", "openai-responses"]);
-  expect(routedProviderConfig("neuralwatt", chat).adapter).toBe("openai-chat");
-  expect(routedProviderConfig("neuralwatt", { ...responses, adapter: "anthropic" }).adapter).toBe("openai-chat");
-  expect(routedProviderConfig("groq", { ...responses, baseUrl: "https://api.groq.com/openai/v1" }).adapter).toBe("openai-chat");
-  const config: OcxConfig = { port: 10100, providers: { neuralwatt: responses } };
-  expect(routeModel(config, `neuralwatt/${model}`).provider.adapter).toBe("openai-responses");
-  config.providers.neuralwatt = { ...responses, modelAdapters: { [model]: "openai-chat" } };
-  expect(routeModel(config, `neuralwatt/${model}`).staticPolicy.model.adapter).toBe("openai-chat");
 });

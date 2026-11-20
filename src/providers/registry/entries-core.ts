@@ -1063,8 +1063,6 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
     id: "neuralwatt",
     label: "Neuralwatt Cloud",
     adapter: "openai-chat",
-    // Keep Chat by default; Responses is an explicit choice at the same endpoint.
-    alternateAdapters: ["openai-responses"],
     baseUrl: "https://api.neuralwatt.com/v1",
     authKind: "key",
     dashboardUrl: "https://portal.neuralwatt.com",

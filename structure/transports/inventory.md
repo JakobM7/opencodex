@@ -45,10 +45,6 @@ Anthropic managed sends recheck [family admission](../providers/anthropic-accoun
 
 ## Transport inventory
 
-For fixed key presets, the registry owns the upstream adapter unless it declares an alternate OpenAI wire.
-Neuralwatt accepts an explicit Responses adapter at its canonical endpoint; Chat remains the default.
-The dashboard reads the choices from the preset catalog. A per-model override still takes precedence.
-
 ### Native output identity
 
 `src/server/responses/native-response-json.ts` compares ID-less output records by canonical JSON.

@@ -5,7 +5,6 @@ import { isCanonicalOpenAiForwardProvider } from "./openai-tiers";
 import { resolveProviderAuthTransport } from "./fastwire";
 import { fastSwitchOff } from "./fast-opt-in";
 import { registryEntrySupportsLiveModelDiscovery } from "./static-model-discovery";
-import { normalizedProviderEndpoint } from "./registry";
 import { THINKING_BUDGET_EFFORTS } from "./registry/model-seeds";
 import type { InboundWire, ProviderRegistryEntry, ResponsesTerminalRepairPolicy } from "./registry/types";
 import {
@@ -152,12 +151,7 @@ export function resolveModelPolicy(input: ResolveModelPolicyInput): ResolvedMode
     const [value, source] = mapFill(registryValue, operatorValue);
     put(key, value as StaticProviderPolicyShape[K], source);
   };
-  const alternateAdapter = entry?.authKind === "key" && entry.alternateAdapters !== undefined
-    && (provider.authMode === undefined || provider.authMode === "key")
-    && normalizedProviderEndpoint(provider.baseUrl) === normalizedProviderEndpoint(entry.baseUrl)
-    && entry.alternateAdapters.some(adapter => adapter === provider.adapter);
-  put("adapter", alternateAdapter ? provider.adapter : entry?.adapter ?? provider.adapter,
-    entry && !alternateAdapter ? "registry" : "operator");
+  put("adapter", entry?.adapter ?? provider.adapter, entry ? "registry" : "operator");
   put("baseUrl", baseUrl, baseUrlSource);
   putScalar("apiKeyTransport", entry?.apiKeyTransport);
   const [headers, headersSource] = staticHeaders(entry?.staticHeaders, provider.headers);

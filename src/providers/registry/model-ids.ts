@@ -54,7 +54,6 @@ export const REGISTRY_FIELD_MODEL_ID_ROLES = {
   apiKeyValidation: NONE,
   freeTier: NONE,
   allowBaseUrlOverride: NONE,
-  alternateAdapters: NONE,
   preserveCustomDestination: NONE,
   baseUrlChoices: NONE,
   staticHeaders: NONE,
