@@ -7,6 +7,8 @@ import type { OcxConfig, OcxProviderConfig } from "../../src/types";
 import { projectStaleModelRosters, STALE_MODEL_ROSTERS } from "../../src/providers/stale-model-roster-migration";
 import { planNativeChatReasoningReplay } from "../../src/adapters/openai-chat/reasoning-replay";
 import { extractProviderModelItems, resolveProviderModelDiscovery } from "../../src/providers/model-discovery";
+import { findExpectedPriceOverlay } from "../../src/usage/expected-prices";
+import { NEURALWATT_MODEL_HINTS } from "../../src/providers/registry/model-seeds";
 
 test("a metadata alias on another adapter does not grant registry transport ownership", () => {
   // Volcengine's canonical row moved to Responses; saved Chat rows remain Chat.
@@ -107,4 +109,12 @@ test("Neuralwatt Chat replays reasoning for DeepSeek and its advertised aliases"
     expect(planNativeChatReasoningReplay(messages, provider, model, undefined, true).apply()[0])
       .toMatchObject({ reasoning_content: "Trace marker" });
   }
+});
+
+test("every seeded Neuralwatt chat model has a list-price estimate", () => {
+  for (const id of NEURALWATT_MODEL_HINTS.models) {
+    expect(findExpectedPriceOverlay("neuralwatt", id)?.status, id).toBe("verified-derived");
+  }
+  expect(findExpectedPriceOverlay("neuralwatt", "nw-flash-flex")?.cost4)
+    .toEqual({ input: 0.0975, output: 0.39, cacheRead: 0.00975, cacheWrite: 0 });
 });

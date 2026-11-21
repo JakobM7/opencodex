@@ -114,6 +114,8 @@ non-chat decision models; an offline roster covers the chat models when discover
 On Chat Completions, OpenCodex replays prior reasoning for the reasoning models Neuralwatt documents,
 including DeepSeek V4.1 Flash and its `nw-flash` tracking alias. Requests to Kimi K3.1 Pro omit
 `temperature`, `top_p` and penalties, which Moonshot fixes for that model.
+Usage cost estimates use the token list prices Neuralwatt publishes per model; Neuralwatt itself bills
+subscriptions and pay-as-you-go by GPU energy, so the estimate is not the amount charged.
 
 **Alibaba Token Plan** provides Beijing Personal Edition and International Team Edition
 presets. Both regions offer both subscription tiers. The presets keep static chat-model
