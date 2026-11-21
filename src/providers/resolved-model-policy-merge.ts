@@ -1,7 +1,6 @@
 import type { OcxProviderConfig } from "../types";
 import { MODEL_ADAPTER_OVERRIDE_ALLOWED } from "../types";
 import type { InboundWire, ModelWireDefault, ProviderRegistryEntry } from "./registry/types";
-import { THINKING_BUDGET_MODELS } from "./registry/model-seeds";
 
 export type StaticPolicySource =
   | "operator" | "operator-capability" | "captured-auth"
@@ -83,10 +82,6 @@ export function positiveCapMap(
     merged[key] = cap === undefined ? value : Math.min(cap, value);
   }
   return [merged, source];
-}
-
-export function isOldNeuralwattBudgetSeed(providerId: string, model: string, budgets: string[] | undefined): boolean {
-  return providerId === "neuralwatt" && model === "qwen3.6-35b" && sameStringArray(budgets, THINKING_BUDGET_MODELS);
 }
 
 export function stableUnion(

@@ -938,12 +938,13 @@ export const KIMI_CODING_MODEL_CONTEXT_WINDOWS: Record<string, number> = Object.
 export const KIMI_CODING_MODEL_INPUT_MODALITIES = Object.fromEntries(
   KIMI_CODING_ADJUSTABLE_THINKING_MODELS.map(id => [id, ["text", "image"]]),
 );
-// Offline chat-model snapshot from https://api.neuralwatt.com/v1/models.
-// Exclude mammoth-1: it is a decision model, not a chat completion model.
-// Live descriptions and limits still come from model discovery.
+// 2026-11-20 live /v1/models: offline fallback for Neuralwatt's chat models.
+// mammoth-1 is a decision model, not a chat completion model, and is excluded.
+// Live discovery stays authoritative for the roster and its limits.
+// Evidence: https://api.neuralwatt.com/v1/models and https://docs.neuralwatt.com/api/chat-completions
 const NEURALWATT_FAMILIES: {
   models: string[]; context: number; output?: number; efforts: string[];
-  defaultEffort: string; textOnly?: boolean; replay?: boolean;
+  defaultEffort?: string; textOnly?: boolean; replay?: boolean; fixedSampling?: boolean;
 }[] = [
   { models: ["glm-5.3", "glm-5.3-flex"], context: 1_048_560, efforts: ["low", "high", "max"],
     defaultEffort: "max", textOnly: true, replay: true },
@@ -951,16 +952,23 @@ const NEURALWATT_FAMILIES: {
     defaultEffort: "max", replay: true },
   { models: ["deepseek-v4.1-flash", "deepseek-v4.1-flash-flex", "deepseek-v4.1-flash-speed", "nw-flash", "nw-flash-flex"],
     context: 1_048_560, output: 393_216, efforts: ["none", "low", "high", "xhigh", "max"], defaultEffort: "high", replay: true },
+  // Moonshot fixes Kimi K3.1 sampling: https://platform.kimi.ai/docs/guide/use-kimi-k2-thinking-model
   { models: ["kimi-k3.1-pro", "kimi-k3.1-pro-flex", "nw-large", "nw-large-flex"],
-    context: 1_048_560, efforts: ["none", "low", "medium", "high", "max"], defaultEffort: "max", replay: true },
+    context: 1_048_560, efforts: ["none", "low", "medium", "high", "max"], defaultEffort: "max", replay: true, fixedSampling: true },
   { models: ["mimo-v2.6-pro", "mimo-v2.6-pro-flex"], context: 1_048_560, output: 393_216,
     efforts: ["none", "high"], defaultEffort: "high", replay: true },
   { models: ["qwen-3.8-27b", "qwen-3.8-27b-flex", "nw-small", "nw-small-flex"],
     context: 262_128, output: 131_072, efforts: ["none", "low", "medium", "xhigh"], defaultEffort: "xhigh", replay: true },
-  { models: ["qwen3.6-35b", "qwen3.6-35b-flex"], context: 262_128,
-    efforts: ["none", "high"], defaultEffort: "high", replay: true },
+  // qwen3.6-35b keeps the thinking_budget ladder from the earlier seed (THINKING_BUDGET_MODELS).
+  { models: ["qwen3.6-35b"], context: 262_128, efforts: THINKING_BUDGET_EFFORTS, replay: true },
+  { models: ["qwen3.6-35b-flex"], context: 262_128, efforts: ["none", "high"], defaultEffort: "high", replay: true },
   { models: ["qwen3.6-35b-fast"], context: 262_128, efforts: [], defaultEffort: "none" },
   { models: ["gemma-4-31b"], context: 262_128, output: 16_384, efforts: ["none", "max"], defaultEffort: "none" },
+];
+
+// kimi-k2.7-code keeps its earlier rules; Neuralwatt now serves it with Kimi K3.1 Pro.
+const NEURALWATT_FIXED_SAMPLING_MODELS = [
+  ...NEURALWATT_FAMILIES.filter(family => family.fixedSampling).flatMap(family => family.models), "kimi-k2.7-code",
 ];
 
 function neuralwattModelMap<T>(value: (family: typeof NEURALWATT_FAMILIES[number]) => T | undefined): Record<string, T> {
@@ -981,6 +989,10 @@ export const NEURALWATT_MODEL_HINTS = {
   },
   modelDefaultReasoningEfforts: neuralwattModelMap(family => family.defaultEffort),
   noReasoningModels: NEURALWATT_FAMILIES.filter(family => !family.efforts.length).flatMap(family => family.models),
+  noTemperatureModels: NEURALWATT_FIXED_SAMPLING_MODELS,
+  noTopPModels: NEURALWATT_FIXED_SAMPLING_MODELS,
+  noPenaltyModels: NEURALWATT_FIXED_SAMPLING_MODELS,
+  autoToolChoiceOnlyModels: ["kimi-k2.7-code"],
   // https://docs.neuralwatt.com/api/chat-completions#preserving-reasoning-across-turns
   // Keep replay for unlisted legacy ids still used by existing Chat clients.
   preserveReasoningContentModels: [

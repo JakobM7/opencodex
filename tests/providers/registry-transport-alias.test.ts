@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { enrichProviderFromRegistry } from "../../src/providers/derive";
 import { providerMatchesRegistryTransport, registryEntryForProviderDestination } from "../../src/providers/registry";
-import { deepseekReasoningMapFor, THINKING_BUDGET_EFFORTS, THINKING_BUDGET_MODELS } from "../../src/providers/registry/model-seeds";
+import { deepseekReasoningMapFor, THINKING_BUDGET_EFFORTS } from "../../src/providers/registry/model-seeds";
 import { captureRouteStaticPolicy, routedProviderConfig } from "../../src/router";
 import type { OcxConfig, OcxProviderConfig } from "../../src/types";
 import { projectStaleModelRosters, STALE_MODEL_ROSTERS } from "../../src/providers/stale-model-roster-migration";
@@ -66,9 +66,8 @@ test("non-Alibaba destination aliases fill effort defaults and maps while operat
   }
 });
 
-test("Neuralwatt refreshes only the old seed and repairs its generated Qwen budget", () => {
+test("Neuralwatt refreshes only the old seed", () => {
   const seed = STALE_MODEL_ROSTERS.find(entry => entry.provider === "neuralwatt")!;
-  const model = "qwen3.6-35b";
   const baseUrl = "https://api.neuralwatt.com/v1";
   const config: OcxConfig = { port: 10100, providers: { neuralwatt: {
     adapter: "openai-chat", baseUrl, models: [...seed.from],
@@ -77,12 +76,16 @@ test("Neuralwatt refreshes only the old seed and repairs its generated Qwen budg
   expect(config.providers.neuralwatt?.models).toContain("deepseek-v4.1-flash");
   config.providers.neuralwatt!.models = [...seed.from, "custom-model"];
   expect(projectStaleModelRosters(config).changed).toBe(false);
-  const old: OcxProviderConfig = { adapter: "openai-chat", baseUrl,
-    thinkingBudgetModels: THINKING_BUDGET_MODELS, modelReasoningEfforts: { [model]: THINKING_BUDGET_EFFORTS } };
-  const routed = routedProviderConfig("neuralwatt", old);
-  expect(routed.thinkingBudgetModels).not.toContain(model);
-  expect(routed.modelReasoningEfforts?.[model]).toEqual(["none", "high"]);
-  expect(routedProviderConfig("neuralwatt", { ...old, thinkingBudgetModels: [model] }).thinkingBudgetModels).toContain(model);
+});
+
+test("Neuralwatt keeps Kimi sampling locks and the Qwen 3.6 thinking budget", () => {
+  const routed = routedProviderConfig("neuralwatt", { adapter: "openai-chat", baseUrl: "https://api.neuralwatt.com/v1" });
+  for (const field of ["noTemperatureModels", "noTopPModels", "noPenaltyModels"] as const) {
+    expect(routed[field]).toEqual(expect.arrayContaining(["kimi-k3.1-pro", "nw-large", "kimi-k2.7-code"]));
+  }
+  expect(routed.autoToolChoiceOnlyModels).toEqual(["kimi-k2.7-code"]);
+  expect(routed.thinkingBudgetModels).toContain("qwen3.6-35b");
+  expect(routed.modelReasoningEfforts?.["qwen3.6-35b"]).toEqual(THINKING_BUDGET_EFFORTS);
 });
 
 test("Neuralwatt discovers chat models but excludes decision models on either OpenAI wire", () => {

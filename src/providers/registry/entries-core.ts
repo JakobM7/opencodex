@@ -1071,10 +1071,7 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
       { path: ["metadata", "capabilities", "task"], equalsAny: ["decision"] },
     ] } },
     ...NEURALWATT_MODEL_HINTS,
-    // Older installs seeded a generic Qwen budget list. Recognize that generated list so
-    // Qwen3.6 now sends Neuralwatt's documented reasoning_effort instead of thinking_budget.
-    thinkingBudgetModels: THINKING_BUDGET_MODELS.filter(id => id !== "qwen3.6-35b"),
-    directReasoningEffortModels: ["qwen3.6-35b"],
+    thinkingBudgetModels: THINKING_BUDGET_MODELS,
   },
   {
     id: "openrouter",

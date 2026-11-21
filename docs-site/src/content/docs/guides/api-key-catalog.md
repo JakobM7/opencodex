@@ -109,6 +109,12 @@ region-pinned EU routes, is at [opper.ai/models](https://opper.ai/models). Opper
 | Cloudflare AI Gateway | `https://gateway.ai.cloudflare.com/v1/{account-id}/{gateway}/anthropic` |
 | …and more | opencode zen, Vercel AI Gateway, Venice, NanoGPT, Synthetic, Qianfan, Alibaba, Parallel, ZenMux, LiteLLM |
 
+**Neuralwatt Cloud** discovers models from Neuralwatt’s public `/v1/models` catalog and skips
+non-chat decision models; an offline roster covers the chat models when discovery is unavailable.
+On Chat Completions, OpenCodex replays prior reasoning for the reasoning models Neuralwatt documents,
+including DeepSeek V4.1 Flash and its `nw-flash` tracking alias. Requests to Kimi K3.1 Pro omit
+`temperature`, `top_p` and penalties, which Moonshot fixes for that model.
+
 **Alibaba Token Plan** provides Beijing Personal Edition and International Team Edition
 presets. Both regions offer both subscription tiers. The presets keep static chat-model
 lists because upstream discovery also includes non-chat models. Existing selections and
@@ -129,8 +135,6 @@ The Qwen Cloud preset uses the separate Token Plan host that Qwen Cloud document
 See the [1017 model card](https://www.qianwenai.com/models/deepseek-v4.1-flash-1017),
 [Chat reference](https://docs.qwencloud.com/api-reference/chat/openai-chat) and
 [Personal overview](https://help.aliyun.com/en/model-studio/token-plan-personal-overview).
-**Neuralwatt Chat models.** OpenCodex uses Neuralwatt’s public model catalog, with an offline roster for chat models. On Chat Completions, OpenCodex replays prior reasoning for DeepSeek V4.1 Flash and its `nw-flash` tracking alias.
-
 **Morph (Ultra plan)** serves `https://api.morphllm.com/v1` and seeds only the Ultra-covered models, `morph-kimik31` (Kimi K3.1) and `morph-dsv41flash-1017` (DeepSeek V4.1 Flash, October 17 snapshot): every other Morph model bills per token, and `morph-dsv41flash-abliterated` is Ultra-covered only for accounts approved for privileged access.
 Both publish a 1,048,576-token window, accept text and images, and support tools, streaming and reasoning; Kimi takes `none`..`max` and DeepSeek Flash `none`/`low`/`high`/`xhigh`/`max` with `medium` folded onto `high`.
 Ultra removes the token meter but not the per-minute limits, so a `429` means retry after `Retry-After`. Create a key in the [Morph dashboard](https://www.morphllm.com/dashboard/api-keys), then run `ocx provider add morph`; live discovery stays off because `GET /v1/models` also lists per-token models the plan excludes.
